@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Music Remover 🎶</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/wavesurfer.js"></script>
+</head>
+<body class="bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 min-h-screen flex items-center justify-center">
+
+  <div class="bg-white shadow-2xl rounded-3xl p-10 max-w-md w-full text-center animate-fade-in">
+
+    <h1 class="text-4xl font-extrabold text-gray-800 mb-6 animate-bounce">🎵 Music Remover</h1>
+
+    <form id="uploadForm" action="/upload" method="post" enctype="multipart/form-data" class="space-y-4">
+      <div id="dropArea" class="flex flex-col items-center justify-center p-6 border-2 border-dashed border-indigo-500 rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100">
+        <p id="dropText" class="text-gray-700">Drag & Drop or Click to Select File</p>
+        <input type="file" name="file" id="fileInput" class="hidden" required>
+      </div>
+
+      <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-md transition duration-300">
+        Upload & Remove Vocals
+      </button>
+
+      <div id="progressContainer" class="w-full bg-gray-300 rounded-full h-4 hidden mt-4">
+        <div id="progressBar" class="bg-green-500 h-4 rounded-full" style="width: 0%;"></div>
+      </div>
+
+      <div id="loadingText" class="text-indigo-700 mt-4 hidden">⏳ Processing, please wait...</div>
+    </form>
+
+    <div id="resultSection" class="hidden mt-8">
+      <h2 class="text-2xl font-semibold text-gray-700 mb-4">🎶 Your Files</h2>
+      <div id="downloadLinks" class="space-y-4"></div>
+
+      <div id="audioPreviews" class="mt-8 space-y-6"></div>
+    </div>
+
+  </div>
+
+  <script>
+    const uploadForm = document.getElementById('uploadForm');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const loadingText = document.getElementById('loadingText');
+    const resultSection = document.getElementById('resultSection');
+    const downloadLinks = document.getElementById('downloadLinks');
+    const audioPreviews = document.getElementById('audioPreviews');
+    const dropArea = document.getElementById('dropArea');
+    const fileInput = document.getElementById('fileInput');
+    const dropText = document.getElementById('dropText');
+
+    dropArea.addEventListener('click', () => fileInput.click());
+    dropArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropArea.classList.add('bg-purple-100');
+    });
+    dropArea.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dropArea.classList.remove('bg-purple-100');
+    });
+    dropArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropArea.classList.remove('bg-purple-100');
+      fileInput.files = e.dataTransfer.files;
+      updateFileName();
+    });
+    fileInput.addEventListener('change', updateFileName);
+
+    function updateFileName() {
+      if (fileInput.files.length > 0) {
+        const fileName = fileInput.files[0].name;
+        dropText.textContent = `🎵 Selected: ${fileName}`;
+      }
+    }
+
+    uploadForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      
+      const formData = new FormData(uploadForm);
+      const xhr = new XMLHttpRequest();
+
+      xhr.open('POST', '/upload', true);
+
+      xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) {
+          progressContainer.classList.remove('hidden');
+          const percent = (e.loaded / e.total) * 100;
+          progressBar.style.width = percent + "%";
+        }
+      };
+
+      xhr.onload = function() {
+        if (xhr.status === 200) {
+          uploadForm.classList.add('hidden');
+          loadingText.classList.add('hidden');
+          resultSection.classList.remove('hidden');
+
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(xhr.responseText, 'text/html');
+          const links = doc.querySelectorAll('a');
+
+          downloadLinks.innerHTML = '';
+          audioPreviews.innerHTML = '';
+
+          links.forEach(link => {
+            downloadLinks.appendChild(link);
+            downloadLinks.appendChild(document.createElement('br'));
+
+            const fileUrl = link.href;
+            const fileName = link.textContent.includes('Vocals') ? 'Vocals' : 'Instrumental';
+
+            const container = document.createElement('div');
+            container.innerHTML = `
+              <h3 class="text-lg font-bold text-gray-800">${fileName} Preview</h3>
+              <div id="waveform-${fileName}" class="rounded-md overflow-hidden bg-gray-200"></div>
+              <button onclick="wavesurfers['${fileName}'].playPause()" 
+                class="mt-2 bg-purple-500 hover:bg-purple-600 text-white py-1 px-4 rounded-full">
+                Play/Pause
+              </button>
+
+              <textarea id="note-${fileName}" placeholder="Write your notes while listening..." 
+                class="w-full mt-4 p-3 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500" rows="3"></textarea>
+
+              <div class="flex space-x-4 mt-2 justify-center">
+                <button onclick="downloadNote('${fileName}')" 
+                  class="bg-green-500 hover:bg-green-600 text-white py-1 px-4 rounded-full">
+                  Download Note
+                </button>
+              </div>
+            `;
+            audioPreviews.appendChild(container);
+
+            setTimeout(() => {
+              wavesurfers[fileName] = WaveSurfer.create({
+                container: `#waveform-${fileName}`,
+                waveColor: 'violet',
+                progressColor: 'purple',
+                height: 80,
+              });
+              wavesurfers[fileName].load(fileUrl);
+            }, 100);
+          });
+        } else {
+          alert('Upload failed.');
+        }
+      };
+
+      loadingText.classList.remove('hidden');
+      xhr.send(formData);
+    });
+
+    const wavesurfers = {};
+
+    function downloadNote(fileName) {
+      const noteText = document.getElementById(`note-${fileName}`).value;
+      if (noteText.trim() === '') {
+        alert('📝 Please write a note before downloading.');
+        return;
+      }
+
+      const blob = new Blob([noteText], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName}_note.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  </script>
+
+  <style>
+    @keyframes fade-in {
+      0% { opacity: 0; transform: scale(0.95); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    .animate-fade-in {
+      animation: fade-in 0.7s ease-in-out forwards;
+    }
+  </style>
+
+</body>
+</html>
